@@ -4,33 +4,52 @@ const fs = std.fs;
 const mem = std.mem;
 
 pub fn build(b: *Build) void {
+    const system_protocols = b.option([]const []const u8, "protocols_system", "the system protocols to generate");
+    const custom_protocols = b.option([]const []const u8, "protocols_custom", "the custom protocols to generate");
+    const to_generate = b.option([]const []const u8, "generate", "protocols to generate in the format of {name}:{version}");
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const scanner = Scanner.create(b, .{});
 
-    const wayland = b.createModule(.{ .source_file = scanner.result });
-
-    scanner.generate("wl_compositor", 1);
-    scanner.generate("wl_shm", 1);
-    scanner.generate("wl_seat", 2);
-    scanner.generate("wl_output", 1);
-
-    inline for ([_][]const u8{ "globals", "list", "listener", "seats" }) |example| {
-        const exe = b.addExecutable(.{
-            .name = example,
-            .root_source_file = .{ .path = "example/" ++ example ++ ".zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-
-        exe.addModule("wayland", wayland);
-        scanner.addCSource(exe);
-        exe.linkLibC();
-        exe.linkSystemLibrary("wayland-client");
-
-        b.installArtifact(exe);
+    if (system_protocols) |sys_protos| {
+        for (sys_protos) |proto| {
+            scanner.addSystemProtocol(proto);
+        }
     }
+
+    if (custom_protocols) |custom_protos| {
+        for (custom_protos) |proto| {
+            scanner.addCustomProtocol(proto);
+        }
+    }
+
+    if (to_generate) |generate_me| {
+        for (generate_me) |gen| {
+            var it = std.mem.split(u8, gen, ":");
+            const version = std.fmt.parseInt(u32, it.rest(), 10) catch 1;
+
+            scanner.generate(it.first(), version);
+        }
+    }
+
+    const wayland = b.addModule("zig-wayland", .{
+        .source_file = scanner.result,
+    });
+
+    const lib = b.addStaticLibrary(.{
+        .name = "libzig-wayland",
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    lib.linkSystemLibrary("wayland-client");
+
+    scanner.addCSource(lib);
+
+    b.installArtifact(lib);
 
     const test_step = b.step("test", "Run the tests");
     {
