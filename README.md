@@ -4,35 +4,37 @@ Zig 0.12 bindings and protocol scanner for libwayland.
 
 ## Usage
 
-A `Scanner` interface is provided which you may integrate with your `build.zig`:
+### build.zig.zon
+
+```
+.zig_wayland = .{
+    .url = "https://github.com/sammyjames/zig-wayland/archive/<commit>.tar.gz",
+    .hash = "<hash>",
+},
+```
+
+### build.zig
 
 ```zig
 const std = @import("std");
-
-const Scanner = @import("deps/zig-wayland/build.zig").Scanner;
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const scanner = Scanner.create(b, .{});
-
-    const wayland = b.createModule(.{ .source_file = scanner.result });
-
-    scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
-    scanner.addSystemProtocol("staging/ext-session-lock/ext-session-lock-v1.xml");
-    scanner.addCustomProtocol("protocol/private_foobar.xml");
-
-    // Pass the maximum version implemented by your wayland server or client.
-    // Requests, events, enums, etc. from newer versions will not be generated,
-    // ensuring forwards compatibility with newer protocol xml.
-    // This will also generate code for interfaces created using the provided
-    // global interface, in this example wl_keyboard, wl_pointer, xdg_surface,
-    // xdg_toplevel, etc. would be generated as well.
-    scanner.generate("wl_seat", 4);
-    scanner.generate("xdg_wm_base", 3);
-    scanner.generate("ext_session_lock_manager_v1", 1);
-    scanner.generate("private_foobar_manager", 1);
+    const zigwl_dep = b.dependency("zig_wayland", .{ .protocols_system = @as([]const []const u8, &.{
+        "stable/xdg-shell/xdg-shell.xml",
+        "unstable/xdg-decoration/xdg-decoration-unstable-v1.xml",
+    }), .generate = @as([]const []const u8, &.{
+        "wl_compositor:1",
+        "wl_shm:1",
+        "wl_seat:1",
+        "wl_output:1",
+        "xdg_wm_base:1",
+        "zxdg_decoration_manager_v1:1",
+    }) });
+    const zigwl_lib = zigwl_dep.artifact("libzig-wayland");
+    const zigwl_bindings = zigwl_dep.module("zig-wayland");
 
     const exe = b.addExecutable(.{
         .name = "foobar",
@@ -41,12 +43,9 @@ pub fn build(b: *std.build.Builder) void {
         .optimize = optimize,
     });
 
-    exe.addModule("wayland", wayland);
+    exe.addModule("wayland", zigwl_bindings);
     exe.linkLibC();
-    exe.linkSystemLibrary("wayland-client");
-
-    // TODO: remove when https://github.com/ziglang/zig/issues/131 is implemented
-    scanner.addCSource(exe);
+    exe.linkLibrary(zigwl_lib);
 
     b.installArtifact(exe);
 }
@@ -58,9 +57,6 @@ Then, you may import the provided module in your project:
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 ```
-
-There is an example project using zig-wayland here:
-[hello-zig-wayland](https://github.com/ifreund/hello-zig-wayland).
 
 Note that zig-wayland does not currently do extensive verification of Wayland
 protocol xml or provide good error messages if protocol xml is invalid. It is
