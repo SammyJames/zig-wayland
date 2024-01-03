@@ -11,7 +11,7 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const scanner = Scanner.create(b, .{});
+    const scanner = Scanner.create(b, .{ .target = target });
 
     if (system_protocols) |sys_protos| {
         for (sys_protos) |proto| {
@@ -34,22 +34,16 @@ pub fn build(b: *Build) void {
         }
     }
 
-    const wayland = b.addModule("zig-wayland", .{
-        .source_file = scanner.result,
-    });
-
-    const lib = b.addStaticLibrary(.{
-        .name = "libzig-wayland",
-        .target = target,
-        .optimize = optimize,
+    var wayland = b.addModule("zig-wayland", .{
+        .root_source_file = scanner.result,
         .link_libc = true,
+        .target = target,
     });
 
-    lib.linkSystemLibrary("wayland-client");
+    wayland.linkSystemLibrary("wayland-client", .{});
+    wayland.linkSystemLibrary("wayland-server", .{});
 
-    scanner.addCSource(lib);
-
-    b.installArtifact(lib);
+    scanner.addCSource(wayland);
 
     const test_step = b.step("test", "Run the tests");
     {
@@ -59,8 +53,7 @@ pub fn build(b: *Build) void {
             .optimize = optimize,
         });
 
-        scanner_tests.addModule("wayland", wayland);
-
+        scanner_tests.root_module.addImport("wayland", wayland);
         test_step.dependOn(&scanner_tests.step);
     }
     {
@@ -68,11 +61,10 @@ pub fn build(b: *Build) void {
             .root_source_file = .{ .path = "src/ref_all.zig" },
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         });
 
-        ref_all.addModule("wayland", wayland);
-        scanner.addCSource(ref_all);
-        ref_all.linkLibC();
+        ref_all.root_module.addImport("wayland", wayland);
         ref_all.linkSystemLibrary("wayland-client");
         ref_all.linkSystemLibrary("wayland-server");
         ref_all.linkSystemLibrary("wayland-egl");
@@ -89,7 +81,7 @@ pub const Scanner = struct {
     wayland_protocols_path: []const u8,
 
     // TODO remove these when the workaround for zig issue #131 is no longer needed.
-    compiles: std.ArrayListUnmanaged(*Build.Step.Compile) = .{},
+    modules: std.ArrayListUnmanaged(*Build.Module) = .{},
     c_sources: std.ArrayListUnmanaged(Build.LazyPath) = .{},
 
     pub const Options = struct {
@@ -99,6 +91,8 @@ pub const Scanner = struct {
         /// Path to the wayland-protocols installation.
         /// If null, the output of `pkg-config --variable=pkgdatadir wayland-protocols` will be used.
         wayland_protocols_path: ?[]const u8 = null,
+
+        target: Build.ResolvedTarget,
     };
 
     pub fn create(b: *Build, options: Options) *Scanner {
@@ -114,6 +108,7 @@ pub const Scanner = struct {
         const zig_wayland_dir = fs.path.dirname(@src().file) orelse ".";
         const exe = b.addExecutable(.{
             .name = "zig-wayland-scanner",
+            .target = options.target,
             .root_source_file = .{ .path = b.pathJoin(&.{ zig_wayland_dir, "src/scanner.zig" }) },
         });
 
@@ -169,17 +164,17 @@ pub const Scanner = struct {
 
     /// Generate and add the necessary C source to the compilation unit.
     /// Once https://github.com/ziglang/zig/issues/131 is resolved we can remove this.
-    pub fn addCSource(scanner: *Scanner, compile: *Build.Step.Compile) void {
+    pub fn addCSource(scanner: *Scanner, module: *Build.Module) void {
         const b = scanner.run.step.owner;
 
         for (scanner.c_sources.items) |c_source| {
-            compile.addCSourceFile(.{
+            module.addCSourceFile(.{
                 .file = c_source,
                 .flags = &.{ "-std=c99", "-O2" },
             });
         }
 
-        scanner.compiles.append(b.allocator, compile) catch @panic("OOM");
+        scanner.modules.append(b.allocator, module) catch @panic("OOM");
     }
 
     /// Once https://github.com/ziglang/zig/issues/131 is resolved we can remove this.
@@ -191,8 +186,8 @@ pub const Scanner = struct {
 
         const c_source = cmd.addOutputFileArg(out_name);
 
-        for (scanner.compiles.items) |compile| {
-            compile.addCSourceFile(.{
+        for (scanner.modules.items) |module| {
+            module.addCSourceFile(.{
                 .file = c_source,
                 .flags = &.{ "-std=c99", "-O2" },
             });
