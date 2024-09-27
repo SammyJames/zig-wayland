@@ -94,7 +94,7 @@ pub const Server = opaque {
         wl_display_set_global_filter(
             server,
             struct {
-                fn wrapper(_client: *const Client, _global: *const Global, _data: ?*anyopaque) callconv(.C) bool {
+                fn _wrapper(_client: *const Client, _global: *const Global, _data: ?*anyopaque) callconv(.C) bool {
                     filter(_client, _global, @ptrCast(@alignCast(_data)));
                 }
             }._wrapper,
@@ -132,7 +132,7 @@ pub const Server = opaque {
                 fn _wrapper(_data: ?*anyopaque, _direction: ProtocolLogger.Type, _message: *const ProtocolLogger.LogMessage) callconv(.C) void {
                     func(@ptrCast(@alignCast(_data)), _direction, _message);
                 }
-            },
+            }._wrapper,
             data,
         );
     }
@@ -482,7 +482,7 @@ pub const list = struct {
                             .reverse => it.current.prev.?,
                         };
                         if (it.current == it.head) return null;
-                        return if (link_field) |f| @fieldParentPtr(T, @tagName(f), it.current) else T.fromLink(it.current);
+                        return if (link_field) |f| @fieldParentPtr(@tagName(f), it.current) else T.fromLink(it.current);
                     }
                 };
             }
@@ -507,7 +507,7 @@ pub const list = struct {
                             .reverse => it.future.prev.?,
                         };
                         if (it.current == it.head) return null;
-                        return if (link_field) |f| @fieldParentPtr(T, @tagName(f), it.current) else T.fromLink(it.current);
+                        return if (link_field) |f| @fieldParentPtr(@tagName(f), it.current) else T.fromLink(it.current);
                     }
                 };
             }
@@ -609,7 +609,7 @@ pub fn Signal(comptime T: type) type {
 
             while (cursor.link.next != &end.link) {
                 const pos = cursor.link.next.?;
-                const listener = @fieldParentPtr(Listener(T), "link", pos);
+                const listener: Listener(T) = @fieldParentPtr("link", pos);
 
                 cursor.link.remove();
                 pos.insert(&cursor.link);

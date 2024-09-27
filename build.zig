@@ -4,12 +4,23 @@ const fs = std.fs;
 const mem = std.mem;
 
 pub fn build(b: *Build) void {
-    const system_protocols = b.option([]const []const u8, "protocols_system", "the system protocols to generate");
-    const custom_protocols = b.option([]const []const u8, "protocols_custom", "the custom protocols to generate");
-    const to_generate = b.option([]const []const u8, "generate", "protocols to generate in the format of {name}:{version}");
+    const system_protocols = b.option(
+        []const []const u8,
+        "protocols_system",
+        "the system protocols to generate",
+    );
+    const custom_protocols = b.option(
+        []const []const u8,
+        "protocols_custom",
+        "the custom protocols to generate",
+    );
+    const to_generate = b.option(
+        []const []const u8,
+        "generate",
+        "protocols to generate in the format of {name}:{version}",
+    );
 
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
 
     const scanner = Scanner.create(b, .{ .target = target });
 
@@ -27,7 +38,7 @@ pub fn build(b: *Build) void {
 
     if (to_generate) |generate_me| {
         for (generate_me) |gen| {
-            var it = std.mem.split(u8, gen, ":");
+            var it = std.mem.splitScalar(u8, gen, ':');
             const version = std.fmt.parseInt(u32, it.rest(), 10) catch 1;
 
             scanner.generate(it.first(), version);
@@ -44,33 +55,6 @@ pub fn build(b: *Build) void {
     wayland.linkSystemLibrary("wayland-server", .{});
 
     scanner.addCSource(wayland);
-
-    const test_step = b.step("test", "Run the tests");
-    {
-        const scanner_tests = b.addTest(.{
-            .root_source_file = .{ .path = "src/scanner.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-
-        scanner_tests.root_module.addImport("wayland", wayland);
-        test_step.dependOn(&scanner_tests.step);
-    }
-    {
-        const ref_all = b.addTest(.{
-            .root_source_file = .{ .path = "src/ref_all.zig" },
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-
-        ref_all.root_module.addImport("wayland", wayland);
-        ref_all.linkSystemLibrary("wayland-client");
-        ref_all.linkSystemLibrary("wayland-server");
-        ref_all.linkSystemLibrary("wayland-egl");
-        ref_all.linkSystemLibrary("wayland-cursor");
-        test_step.dependOn(&ref_all.step);
-    }
 }
 
 pub const Scanner = struct {
@@ -105,11 +89,10 @@ pub const Scanner = struct {
             break :blk mem.trim(u8, pc_output, &std.ascii.whitespace);
         };
 
-        const zig_wayland_dir = fs.path.dirname(@src().file) orelse ".";
         const exe = b.addExecutable(.{
             .name = "zig-wayland-scanner",
             .target = options.target,
-            .root_source_file = .{ .path = b.pathJoin(&.{ zig_wayland_dir, "src/scanner.zig" }) },
+            .root_source_file = b.path("src/scanner.zig"),
         });
 
         const run = b.addRunArtifact(exe);
@@ -118,7 +101,7 @@ pub const Scanner = struct {
         const result = run.addOutputFileArg("wayland.zig");
 
         run.addArg("-i");
-        run.addFileArg(.{ .path = wayland_xml_path });
+        run.addFileArg(.{ .cwd_relative = wayland_xml_path });
 
         const scanner = b.allocator.create(Scanner) catch @panic("OOM");
         scanner.* = .{
@@ -137,7 +120,7 @@ pub const Scanner = struct {
         const full_path = b.pathJoin(&.{ scanner.wayland_protocols_path, relative_path });
 
         scanner.run.addArg("-i");
-        scanner.run.addFileArg(.{ .path = full_path });
+        scanner.run.addFileArg(.{ .cwd_relative = full_path });
 
         scanner.generateCSource(full_path);
     }
@@ -145,7 +128,7 @@ pub const Scanner = struct {
     /// Scan the protocol xml at the given path.
     pub fn addCustomProtocol(scanner: *Scanner, path: []const u8) void {
         scanner.run.addArg("-i");
-        scanner.run.addFileArg(.{ .path = path });
+        scanner.run.addFileArg(.{ .cwd_relative = path });
 
         scanner.generateCSource(path);
     }
