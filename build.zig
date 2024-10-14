@@ -39,9 +39,7 @@ pub fn build(b: *Build) void {
     if (to_generate) |generate_me| {
         for (generate_me) |gen| {
             var it = std.mem.splitScalar(u8, gen, ':');
-            const version = std.fmt.parseInt(u32, it.rest(), 10) catch 1;
-
-            scanner.generate(it.first(), version);
+            scanner.generate(it.first(), std.fmt.parseInt(u32, it.next() orelse "1", 10) catch 1);
         }
     }
 
