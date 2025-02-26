@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+
 const client = @import("wayland.zig").client;
 const common = @import("common.zig");
 pub const Object = common.Object;
@@ -82,6 +83,9 @@ pub const Proxy = opaque {
 
     extern fn wl_proxy_get_user_data(proxy: *Proxy) ?*anyopaque;
     pub const getUserData = wl_proxy_get_user_data;
+
+    extern fn wl_proxy_set_user_data(proxy: *Proxy, udata: ?*anyopaque) void;
+    pub const setUserData = wl_proxy_set_user_data;
 
     extern fn wl_proxy_get_version(proxy: *Proxy) u32;
     pub const getVersion = wl_proxy_get_version;

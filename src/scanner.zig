@@ -5,9 +5,9 @@ const mem = std.mem;
 const os = std.os;
 const fmtId = std.zig.fmtId;
 
-const log = std.log.scoped(.@"zig-wayland");
-
 const xml = @import("xml.zig");
+
+const log = std.log.scoped(.@"zig-wayland");
 
 const gpa = general_purpose_allocator.allocator();
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -502,8 +502,8 @@ const Protocol = struct {
             try interface.emitCommon(1, writer);
         }
 
-        for (targets) |target| {
-            for (protocol.globals) |global| {
+        for (protocol.globals) |global| {
+            for (targets) |target| {
                 if (mem.eql(u8, target.name, global.interface.name)) {
                     // We check this in emitClient() which is called first.
                     assert(global.interface.version >= target.version);
@@ -512,6 +512,12 @@ const Protocol = struct {
                     for (global.children) |child| {
                         try child.emitCommon(target.version, writer);
                     }
+                    break;
+                }
+            } else {
+                try global.interface.emitCommon(null, writer);
+                for (global.children) |child| {
+                    try child.emitCommon(null, writer);
                 }
             }
         }
@@ -605,15 +611,39 @@ const Interface = struct {
         }
 
         if (side == .client) {
-            try writer.print(
-                \\pub fn setQueue(_{[interface]}: *{[type]}, _queue: *client.wl.EventQueue) void {{
-                \\    const _proxy: *client.wl.Proxy = @ptrCast(_{[interface]});
-                \\    _proxy.setQueue(_queue);
-                \\}}
-            , .{
-                .interface = fmtId(trimPrefix(interface.name)),
-                .type = titleCaseTrim(interface.name),
-            });
+            inline for (.{
+                .{ .name = "getId", .return_type = "u32" },
+                .{ .name = "getVersion", .return_type = "u32" },
+                .{ .name = "getUserData", .return_type = "?*anyopaque" },
+            }) |func| {
+                try writer.print(
+                    \\pub fn {[function]s}(_{[interface]}: *{[type]}) {[return_type]s} {{
+                    \\    return @as(*client.wl.Proxy, @ptrCast(_{[interface]})).{[function]s}();
+                    \\}}
+                , .{
+                    .function = func.name,
+                    .interface = fmtId(trimPrefix(interface.name)),
+                    .type = titleCaseTrim(interface.name),
+                    .return_type = func.return_type,
+                });
+            }
+
+            inline for (.{
+                .{ .name = "setQueue", .arg_type = "*client.wl.EventQueue" },
+                .{ .name = "setUserData", .arg_type = "?*anyopaque" },
+            }) |func| {
+                try writer.print(
+                    \\pub fn {[function]s}(_{[interface]}: *{[type]}, _arg: {[arg_type]s}) void {{
+                    \\    const _proxy: *client.wl.Proxy = @ptrCast(_{[interface]});
+                    \\    _proxy.{[function]s}(_arg);
+                    \\}}
+                , .{
+                    .function = func.name,
+                    .interface = fmtId(trimPrefix(interface.name)),
+                    .type = titleCaseTrim(interface.name),
+                    .arg_type = func.arg_type,
+                });
+            }
 
             const has_event = for (interface.events) |event| {
                 if (event.since <= target_version) break true;
@@ -679,23 +709,23 @@ const Interface = struct {
                 .interface = fmtId(trimPrefix(interface.name)),
             });
 
-            for ([_][2][]const u8{
-                .{ "getLink", "*server.wl.list.Link" },
-                .{ "getClient", "*server.wl.Client" },
-                .{ "getId", "u32" },
-                .{ "getVersion", "u32" },
-                .{ "postNoMemory", "void" },
-                .{ "getUserData", "?*anyopaque" },
+            inline for (.{
+                .{ .name = "getLink", .return_type = "*server.wl.list.Link" },
+                .{ .name = "getClient", .return_type = "*server.wl.Client" },
+                .{ .name = "getId", .return_type = "u32" },
+                .{ .name = "getVersion", .return_type = "u32" },
+                .{ .name = "postNoMemory", .return_type = "void" },
+                .{ .name = "getUserData", .return_type = "?*anyopaque" },
             }) |func|
                 try writer.print(
-                    \\pub fn {[function]}(_{[interface]}: *{[type]}) {[return_type]} {{
-                    \\    return @as(*server.wl.Resource, @ptrCast(_{[interface]})).{[function]}();
+                    \\pub fn {[function]s}(_{[interface]}: *{[type]}) {[return_type]s} {{
+                    \\    return @as(*server.wl.Resource, @ptrCast(_{[interface]})).{[function]s}();
                     \\}}
                 , .{
-                    .function = camelCase(func[0]),
+                    .function = func.name,
                     .interface = fmtId(trimPrefix(interface.name)),
                     .type = titleCaseTrim(interface.name),
-                    .return_type = camelCase(func[1]),
+                    .return_type = func.return_type,
                 });
 
             const has_error = for (interface.enums) |e| {
@@ -791,7 +821,7 @@ const Interface = struct {
         try writer.writeAll("};\n");
     }
 
-    fn emitCommon(interface: Interface, target_version: u32, writer: anytype) !void {
+    fn emitCommon(interface: Interface, target_version: ?u32, writer: anytype) !void {
         try writer.print("pub const {}", .{fmtId(trimPrefix(interface.name))});
 
         // TODO: stop linking libwayland generated interface structs when
@@ -805,9 +835,11 @@ const Interface = struct {
             \\ }}
         , .{ .interface = interface.name });
 
-        for (interface.enums) |e| {
-            if (e.since <= target_version) {
-                try e.emit(target_version, writer);
+        if (target_version) |target| {
+            for (interface.enums) |e| {
+                if (e.since <= target) {
+                    try e.emit(target, writer);
+                }
             }
         }
         try writer.writeAll("};");
