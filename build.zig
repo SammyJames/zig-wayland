@@ -27,9 +27,11 @@ pub fn build(b: *Build) void {
     inline for ([_][]const u8{ "globals", "list", "listener", "seats" }) |example| {
         const exe = b.addExecutable(.{
             .name = example,
-            .root_source_file = b.path("example/" ++ example ++ ".zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("example/" ++ example ++ ".zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
 
         exe.root_module.addImport("wayland", wayland);
@@ -42,9 +44,11 @@ pub fn build(b: *Build) void {
     const test_step = b.step("test", "Run the tests");
     {
         const ref_all = b.addTest(.{
-            .root_source_file = b.path("test/ref_all.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("test/ref_all.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
 
         ref_all.root_module.addImport("wayland", wayland);
@@ -59,9 +63,11 @@ pub fn build(b: *Build) void {
     }
     {
         const snapshot = b.addTest(.{
-            .root_source_file = b.path("test/snapshot.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("test/snapshot.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
         });
 
         const options = b.addOptions();
@@ -107,11 +113,13 @@ pub const Scanner = struct {
 
         const exe = b.addExecutable(.{
             .name = "zig-wayland-scanner",
-            .root_source_file = if (b.available_deps.len > 0)
-                b.dependencyFromBuildZig(zig_wayland_build_zig, .{}).path("src/scanner.zig")
-            else
-                b.path("src/scanner.zig"),
-            .target = b.graph.host,
+            .root_module = b.createModule(.{
+                .root_source_file = if (b.available_deps.len > 0)
+                    b.dependencyFromBuildZig(zig_wayland_build_zig, .{}).path("src/scanner.zig")
+                else
+                    b.path("src/scanner.zig"),
+                .target = b.graph.host,
+            }),
         });
 
         const run = b.addRunArtifact(exe);
